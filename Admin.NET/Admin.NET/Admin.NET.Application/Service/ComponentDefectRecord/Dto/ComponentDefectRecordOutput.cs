@@ -85,5 +85,9 @@ public class ComponentDefectRecordDetailOutput
    /// </summary>
    public string? Unit { get; set; }
 
-   
+    /// <summary>
+    /// 备注
+    /// </summary>
+
+    public string? Remark { get; set; }
 }

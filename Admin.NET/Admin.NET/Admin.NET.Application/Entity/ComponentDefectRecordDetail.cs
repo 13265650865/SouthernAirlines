@@ -43,4 +43,10 @@ public class ComponentDefectRecordDetail : EntityBaseId
     /// </summary>
     [SugarColumn(ColumnDescription = "单位", Length = 20)]
     public string? Unit { get; set; }
+
+    /// <summary>
+    /// 备注
+    /// </summary>
+    [SugarColumn(ColumnDescription = "备注", Length = 255)]
+    public string Remark { get; set; }
 }

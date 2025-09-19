@@ -76,7 +76,9 @@ public class ComponentDefectRecordService : IDynamicApiController, ITransient
                     ReplaceComponentId = pcdrd.ReplaceComponentId,
                     ReplaceComponentPartNum = c.PartNum,
                     Quantity = pcdrd.Quantity,
-                    Unit = pcdrd.Unit
+                    Unit = pcdrd.Unit,
+                    Remark=pcdrd.Remark,
+
                 }).ToListAsync();
             foreach (var item in result.Items)
             {
@@ -253,40 +255,74 @@ public class ComponentDefectRecordService : IDynamicApiController, ITransient
         {
             throw importResult.Exception;
         }
+
         var partNumList = importResult.Data.Select(o => o.PartNum).Distinct();
         var replaceComponentPartNumList = importResult.Data.Select(o => o.ReplaceComponentPartNum).Distinct();
         var componentPartNumList = partNumList.Union(replaceComponentPartNumList).Distinct().ToList();
+
         var componentList = await _componentRep.AsQueryable()
             .Where(c => !c.IsDelete && componentPartNumList.Contains(c.PartNum))
             .ToListAsync();
+
         if (componentList.Count == 0)
         {
             throw Oops.Bah("部件件号信息不存在");
         }
+
         try
         {
             _rep.Context.AsTenant().BeginTran();
+
+            // 按CMM和中文缺陷描述分组
             foreach (var item in importResult.Data.GroupBy(o => new
             {
-                o.PartNum,
                 o.CMM,
-                o.ChineseDefectDescription,
-                o.Remark
+                o.ChineseDefectDescription
             }))
             {
-                var component = componentList.FirstOrDefault(o => o.PartNum == item.Key.PartNum);
+                // 检查是否已存在相同CMM和中文缺陷描述的主记录
+                var existingRecord = await _rep.AsQueryable()
+                    .Where(o => !o.IsDelete && o.CMM == item.Key.CMM
+                             && o.ChineseDefectDescription == item.Key.ChineseDefectDescription)
+                    .FirstAsync();
+
+                if (existingRecord != null)
+                {
+                    // 已存在主记录，只添加明细
+                    foreach (var iitem in item)
+                    {
+                        var replaceComponent = componentList.FirstOrDefault(o => o.PartNum == iitem.ReplaceComponentPartNum);
+                        if (replaceComponent == null)
+                        {
+                            throw Oops.Bah($"替换部件号‘{iitem.ReplaceComponentPartNum}‘不存在");
+                        }
+
+                        var entityDetail = iitem.Adapt<ComponentDefectRecordDetail>();
+                        entityDetail.ReplaceComponentId = replaceComponent.Id;
+                        entityDetail.RecordId = existingRecord.Id;
+                        await _detailRep.InsertAsync(entityDetail);
+                    }
+                    continue;
+                }
+
+                // 不存在主记录，创建新主记录和明细
+                var firstItem = item.First();
+                var component = componentList.FirstOrDefault(o => o.PartNum == firstItem.PartNum);
                 if (component == null)
                 {
-                    throw Oops.Bah($"部件号‘{item.Key.PartNum}‘不存在");
+                    throw Oops.Bah($"部件号‘{firstItem.PartNum}‘不存在");
                 }
-                //if (await _rep.AsQueryable().Where(o => !o.IsDelete && o.ComponentId == component.Id && o.CMM == item.Key.CMM
-                //    && o.ChineseDefectDescription == item.Key.ChineseDefectDescription).AnyAsync())
-                //{
-                //    throw Oops.Bah($"部件号‘{item.Key.PartNum}‘CMM‘{item.Key.CMM}’的中文缺陷描述‘{item.Key.ChineseDefectDescription}‘已存在");
-                //}
-                var entity = item.Key.Adapt<ComponentDefectRecord>();
-                entity.ComponentId = component.Id;
+
+                var entity = new ComponentDefectRecord
+                {
+                    ComponentId = component.Id,
+                    CMM = item.Key.CMM,
+                    ChineseDefectDescription = item.Key.ChineseDefectDescription,
+                    Remark = firstItem.Remark
+                };
+
                 await _rep.InsertAsync(entity);
+
                 foreach (var iitem in item)
                 {
                     var replaceComponent = componentList.FirstOrDefault(o => o.PartNum == iitem.ReplaceComponentPartNum);
@@ -294,12 +330,16 @@ public class ComponentDefectRecordService : IDynamicApiController, ITransient
                     {
                         throw Oops.Bah($"替换部件号‘{iitem.ReplaceComponentPartNum}‘不存在");
                     }
+
                     var entityDetail = iitem.Adapt<ComponentDefectRecordDetail>();
                     entityDetail.ReplaceComponentId = replaceComponent.Id;
+                    entityDetail.EnglishDefectDescription=iitem.EnglishDefectDescription;
                     entityDetail.RecordId = entity.Id;
+                    entity.Remark = iitem.Remark;
                     await _detailRep.InsertAsync(entityDetail);
                 }
             }
+
             _rep.Context.AsTenant().CommitTran();
         }
         catch (Exception ex)
@@ -342,7 +382,7 @@ public class ComponentDefectRecordService : IDynamicApiController, ITransient
                         item.PartNum = component.PartNum;
                         item.CMM = entity.CMM;
                         item.ChineseDefectDescription = entity.ChineseDefectDescription;
-                        item.Remark = entity.Remark;
+                        item.Remark = o.Remark;
                     }
                     var itemComponent = components.FirstOrDefault(oi => oi.Id == o.ReplaceComponentId);
                     if (itemComponent != null)
