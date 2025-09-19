@@ -109,6 +109,7 @@
                 />
                 <el-table-column prop="quantity" label="数量" show-overflow-tooltip="" />
                 <el-table-column prop="unit" label="单位" show-overflow-tooltip="" />
+                <el-table-column prop="remark" label="备注"  show-overflow-tooltip="" />
               </el-table>
             </div>
           </template>
@@ -125,7 +126,7 @@
           label="部件中文缺陷描述"
           show-overflow-tooltip=""
         />
-        <el-table-column prop="remark" label="备注" fixed show-overflow-tooltip="" />
+       
         <el-table-column
           label="操作"
           width="200"
